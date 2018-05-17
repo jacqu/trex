@@ -28,7 +28,7 @@ struct trex_config_struct	{
 #define TREX_SIGNATURE_SIZE		9						// Size of TReX signature
 #define TREX_WRITE_SIZE			10						// Max write buffer size
 #define TREX_SIGNATURE			"TReXJr"				// Prefix of the signature
-#define TREX_DEFAULT_ID			7						// Default device ID
+#define TREX_DEFAULT_ID			0						// Default device ID
 #define TREX_MAX_DUTY_CYCLE		127						// Max output value
 #define TREX_MIN_DUTY_CYCLE		0						// Min output value
 
@@ -37,11 +37,17 @@ struct trex_config_struct	{
 #define TREX_GET_STATUS			0x84					// Get status
 #define TREX_GET_UART_ERROR		0x85					// Get UART error
 #define TREX_GET_CONFIG_PARAM	0x9F					// Get configuration parameter
+#define TREX_SET_CONFIG_PARAM	0xAF					// Set configuration parameter
 #define TREX_SET_MOTOR_1_REV	0xC1					// Motor 1 reverse
 #define TREX_SET_MOTOR_2_REV	0xC9					// Motor 2 reverse
 #define TREX_SET_MOTOR_1_FWD	0xC2					// Motor 1 forward
 #define TREX_SET_MOTOR_2_FWD	0xCA					// Motor 2 forward
-#define TREX_SET_MOTOR_1_2		0xD0					// Set motor 1 and 2	
+#define TREX_SET_MOTOR_1_2		0xD0					// Set motor 1 and 2
+
+#define TREX_MAX_CONFIG_ADDR	0x7F					// Highest configuration address
+#define TREX_MAX_CONFIG_VAL		0x7F					// Highest configuration value
+#define TREX_FORMAT_BYTE_1		0x55
+#define TREX_FORMAT_BYTE_2		0x2A
 
 int								trex_fd = -1;			// Serial port file descriptor
 struct termios 					trex_oldtio;			// Backup of old configuration
@@ -183,7 +189,7 @@ int trex_check_presence( unsigned char id )	{
 	if ( trex_fd == -1 )
 		return -1;
 	
-	while ( trex_config[i].address != 0x7F )	{
+	while ( trex_config[i].address != TREX_MAX_CONFIG_ADDR )	{
 		
 		/* Set ext protocol cmd */
 		cmd[0] = TREX_EXT_PROTOCOL;
@@ -211,7 +217,10 @@ int trex_check_presence( unsigned char id )	{
 			return -3; 
 		}
 		else	
-			printf ( "> %s: %x\n", trex_config[i].definition, cfg );
+			printf ( 	"> %s (0x%x): 0x%x\n", 
+						trex_config[i].definition, 
+						trex_config[i].address, 
+						cfg );
 		
 		i++;
 	}
@@ -331,44 +340,202 @@ int trex_get_uart_error( unsigned char id )	{
 		return status;
 }
 
+/******************************************************************************
+ *	trex_set_config : set config bypte
+ *	0 : no error
+ *****************************************************************************/
+int trex_set_config( unsigned char id, unsigned char addr, unsigned char val )	{
+	unsigned char 	cmd[TREX_WRITE_SIZE];
+	int				res;
+	unsigned char	status;
+	
+	if ( trex_fd == -1 )
+		return -1;
+	
+	/* Set ext protocol cmd */
+	cmd[0] = TREX_EXT_PROTOCOL;
+	
+	/* Set ID */
+	cmd[1] = id;
+	
+	/* Set config cmd */
+	cmd[2] = TREX_SET_CONFIG_PARAM & 0x7F;
+	
+	/* Set config address */
+	cmd[3] = addr;
+	
+	/* Set config value */
+	cmd[4] = val;
+	
+	/* Set format byte 1 and 2 */
+	cmd[5] = TREX_FORMAT_BYTE_1;
+	cmd[6] = TREX_FORMAT_BYTE_2;
+	
+	/* Send command */
+	res = write( trex_fd, cmd, 7 );
+	if ( res < 0 )  { 
+		perror( "trex_set_config write command" ); 
+		return -2; 
+	}
+
+	/* Read error code */
+	res = read( trex_fd, &status, 1 );
+	if ( res != 1 )  { 
+		perror( "trex_set_config read UART error" ); 
+		return -3; 
+	}
+	else
+	{
+		switch( status )	{
+			case 0:
+				printf( "trex_set_config: parameter 0x%x is now set to 0x%x.\n", addr, val );
+				break;
+			case 1:
+				printf( "trex_set_config: bad address.\n" );
+				break;
+			case 2:
+				printf( "trex_set_config: bad value.\n" );
+				break;
+			case 3:
+				printf( "trex_set_config: TReX Jr isn't in serial mode.\n" );
+				break;
+			default:
+				printf( "trex_set_config: unknown error %d.\n", status );
+		}
+		
+		return status;
+	}
+}
+
 #ifndef TREX_LIB
-int main( void )	{
+int main( int argc, char *argv[] )	{
 	int ret;
 	int i = -TREX_MAX_DUTY_CYCLE, slope = 1;
 	
-	if ( trex_init_port( ) )	{
-		printf( "Error while initializing TReX port.\n" );
-		exit( -1 );
-	}
+	if ( argc <= 1 )
+		goto display_help;
+	
+	/* Help command */
+	if ( !strcmp( argv[1], "help" ) )
+		goto display_help;
+	
+	/* Test command */
+	if ( !strcmp( argv[1], "test" ) )	{
+		if ( trex_init_port( ) )	{
+			printf( "Error while initializing TReX port.\n" );
+			exit( -1 );
+		}
 
-	if ( trex_check_presence( TREX_DEFAULT_ID ) )	{
-		printf( "TReX detected.\n" );
-		
-		/* Display config */
-		
-		trex_print_config( TREX_DEFAULT_ID );
-		
-		while ( 1 )	{
-			/* Set duty cycle to max on output 1,2 then min on output 1,2 */
+		if ( trex_check_presence( TREX_DEFAULT_ID ) )	{
+			printf( "TReX detected.\n" );
 			
-			trex_output( TREX_DEFAULT_ID, i, -i );
-			if ( ( ret = trex_get_status( TREX_DEFAULT_ID ) ) )	{
-				printf( "Status error: %d\n", ret );
-				if ( ret == 1 )
-					printf ( "UART error: %d\n", trex_get_uart_error( TREX_DEFAULT_ID ) );
+			/* Display config */
+			
+			trex_print_config( TREX_DEFAULT_ID );
+			
+			printf( "* Cycling through all duty cycles from -127 through 127 to -127.\n" );
+			printf( "* [CTRL-C] to exit program.\n" ); 
+			
+			while ( 1 )	{
+				/* Set duty cycle to max on output 1,2 then min on output 1,2 */
+				
+				trex_output( TREX_DEFAULT_ID, i, -i );
+				if ( ( ret = trex_get_status( TREX_DEFAULT_ID ) ) )	{
+					printf( "Status error: %d\n", ret );
+					if ( ret == 1 )
+						printf ( "UART error: %d\n", trex_get_uart_error( TREX_DEFAULT_ID ) );
+				}
+				
+				i += slope;
+				if ( ( i >= TREX_MAX_DUTY_CYCLE ) || (i <= -TREX_MAX_DUTY_CYCLE ) )
+					slope *= -1;
 			}
 			
-			i += slope;
-			if ( ( i >= TREX_MAX_DUTY_CYCLE ) || (i <= -TREX_MAX_DUTY_CYCLE ) )
-				slope *= -1;
+		}
+		else	{
+			printf( "TReX not detected.\n" );
 		}
 		
-	}
-	else	{
-		printf( "TReX not detected.\n" );
+		trex_release_port( );
+		
+		return 0;
 	}
 	
-	trex_release_port( );
+	/* Blink command */
+	if ( !strcmp( argv[1], "blink" ) )	{
+		if ( trex_init_port( ) )	{
+			printf( "Error while initializing TReX port.\n" );
+			exit( -1 );
+		}
+
+		if ( trex_check_presence( TREX_DEFAULT_ID ) )	{
+			printf( "TReX detected.\n" );
+			
+			/* Display config */
+			
+			trex_print_config( TREX_DEFAULT_ID );
+			
+			printf( "* Alternate duty cycle periodically from -%d to %d.\n",
+					TREX_MAX_DUTY_CYCLE, TREX_MAX_DUTY_CYCLE );
+			printf( "* [CTRL-C] to exit program.\n" ); 
+			
+			while ( 1 )	{
+				/* Set duty cycle to max on output 1,2 then min on output 1,2 */
+				
+				trex_output( TREX_DEFAULT_ID, TREX_MAX_DUTY_CYCLE, -TREX_MAX_DUTY_CYCLE );
+				trex_output( TREX_DEFAULT_ID, -TREX_MAX_DUTY_CYCLE, TREX_MAX_DUTY_CYCLE );
+			}
+			
+		}
+		else	{
+			printf( "TReX not detected.\n" );
+		}
+		
+		trex_release_port( );
+		
+		return 0;
+	}
+	
+	/* Config command */
+	if ( !strcmp( argv[1], "config" ) )	{
+		if ( argc != 4 )	{
+			printf( "Arguments missing.\n" );
+			goto display_help;
+		}
+		if ( ( atoi( argv[2] ) < 0 ) || ( atoi( argv[2] ) > TREX_MAX_CONFIG_ADDR ) )	{
+			printf( "Confihuration address is out of range.\n" );
+			exit( -1 );
+		}
+		if ( ( atoi( argv[3] ) < 0 ) || ( atoi( argv[3] ) > TREX_MAX_CONFIG_VAL ) )	{
+			printf( "Configuration value is out of range.\n" );
+			exit( -1 );
+		}
+		if ( trex_init_port( ) )	{
+			printf( "Error while initializing TReX port.\n" );
+			exit( -1 );
+		}
+		if ( trex_check_presence( TREX_DEFAULT_ID ) )	{
+			printf( "TReX detected.\n" );
+			trex_set_config( 	TREX_DEFAULT_ID, 
+								(unsigned char)strtol(argv[2], NULL, 0), 
+								(unsigned char)strtol(argv[3], NULL, 0) );
+		}
+		else
+		{
+			printf( "TReX not detected.\n" );
+		}
+			
+		trex_release_port( );
+		
+		return 0;
+	}
+	
+	/* Default action */	
+	display_help:
+	printf( "* trex help: print this help.\n" );
+	printf( "* trex test: print config and test the outputs.\n" );
+	printf( "* trex blink: print config and make the outputs blink at max rate.\n" );
+	printf( "* trex config addr val: wirte config value val at address addr.\n" ); 
 	
 	return 0;
 }
