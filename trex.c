@@ -146,7 +146,7 @@ int trex_check_presence( unsigned char id )	{
 	cmd[1] = id;
 
 	/* Set signature cmd */
-	cmd[2] = TREX_GET_SIGNATURE;
+	cmd[2] = TREX_GET_SIGNATURE & 0x7F;
 	
 	/* Write command */
 	res = write( trex_fd, cmd, 3 );
@@ -192,7 +192,7 @@ int trex_check_presence( unsigned char id )	{
 		cmd[1] = id;
 		
 		/* Set get status cmd */
-		cmd[2] = TREX_GET_CONFIG_PARAM;
+		cmd[2] = TREX_GET_CONFIG_PARAM & 0x7F;
 		
 		/* Set config address */
 		cmd[3] = trex_config[i].address;
@@ -214,8 +214,6 @@ int trex_check_presence( unsigned char id )	{
 			printf ( "> %s: %x\n", trex_config[i].definition, cfg );
 		
 		i++;
-		
-		trex_check_presence( TREX_DEFAULT_ID );
 	}
 	
 	return 0;
@@ -239,7 +237,7 @@ int trex_output( unsigned char id, signed char out1, signed char out2 )	{
 	cmd[1] = id;
 
 	/* Set cmd for motor 1 and 2 */
-	cmd[2] = TREX_SET_MOTOR_1_2 | ( ( (out2 < 0) ? 1 : 2 ) * 4 ) | ( (out1 < 0) ? 1 : 2 );
+	cmd[2] = ( TREX_SET_MOTOR_1_2 | ( ( (out2 < 0) ? 1 : 2 ) * 4 ) | ( (out1 < 0) ? 1 : 2 ) ) & 0x7F;
 
 	/* Set speed for motor 1 */
 	cmd[3] = abs( out1 );
@@ -276,7 +274,7 @@ int trex_get_status( unsigned char id )	{
 	cmd[1] = id;
 	
 	/* Set get status cmd */
-	cmd[2] = TREX_GET_STATUS;
+	cmd[2] = TREX_GET_STATUS & 0x7F;
 	
 	/* Send command */
 	res = write( trex_fd, cmd, 3 );
@@ -314,7 +312,7 @@ int trex_get_uart_error( unsigned char id )	{
 	cmd[1] = id;
 	
 	/* Set get status cmd */
-	cmd[2] = TREX_GET_UART_ERROR;
+	cmd[2] = TREX_GET_UART_ERROR & 0x7F;
 	
 	/* Send command */
 	res = write( trex_fd, cmd, 3 );
@@ -336,6 +334,7 @@ int trex_get_uart_error( unsigned char id )	{
 #ifndef TREX_LIB
 int main( void )	{
 	int ret;
+	int i = -TREX_MAX_DUTY_CYCLE, slope = 1;
 	
 	if ( trex_init_port( ) )	{
 		printf( "Error while initializing TReX port.\n" );
@@ -352,24 +351,16 @@ int main( void )	{
 		while ( 1 )	{
 			/* Set duty cycle to max on output 1,2 then min on output 1,2 */
 			
-			trex_output( TREX_DEFAULT_ID, TREX_MAX_DUTY_CYCLE, TREX_MAX_DUTY_CYCLE );
-			sleep( 1 );
-			trex_check_presence( TREX_DEFAULT_ID );
+			trex_output( TREX_DEFAULT_ID, i, -i );
 			if ( ( ret = trex_get_status( TREX_DEFAULT_ID ) ) )	{
 				printf( "Status error: %d\n", ret );
 				if ( ret == 1 )
 					printf ( "UART error: %d\n", trex_get_uart_error( TREX_DEFAULT_ID ) );
 			}
 			
-			//trex_output( TREX_DEFAULT_ID, TREX_MAX_DUTY_CYCLE/2, TREX_MAX_DUTY_CYCLE/2 );
-			trex_output( TREX_DEFAULT_ID, TREX_MAX_DUTY_CYCLE/4, TREX_MAX_DUTY_CYCLE/4 );
-			sleep( 1 );
-			trex_check_presence( TREX_DEFAULT_ID );
-			if ( ( ret = trex_get_status( TREX_DEFAULT_ID ) ) )	{
-				printf( "Status error: %d\n", ret );
-				if ( ret == 1 )
-					printf ( "UART error: %d\n", trex_get_uart_error( TREX_DEFAULT_ID ) );
-			}
+			i += slope;
+			if ( ( i >= TREX_MAX_DUTY_CYCLE ) || (i <= -TREX_MAX_DUTY_CYCLE ) )
+				slope *= -1;
 		}
 		
 	}
