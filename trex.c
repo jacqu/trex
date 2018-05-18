@@ -3,6 +3,7 @@
  *	JG, may 2018
  *	To access serial port as user : sudo usermod -a -G dialout $USER 
  *	(logout needed)
+ * 	To compile : gcc -Wall -o trex trex.c
  *****************************************************************************/
 
 #include <sys/types.h>
@@ -14,6 +15,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <strings.h>
+#include "trex.h"
 
 //#define TREX_LIB										// Flag to activate/deactivate main
 
@@ -181,7 +183,7 @@ int trex_check_presence( unsigned char id )	{
  *	trex_print_config : display all configuration bytes
  *	0 : no error
  *****************************************************************************/
- int trex_print_config( unsigned char id )	{
+int trex_print_config( unsigned char id )	{
 	unsigned char 	cmd[TREX_WRITE_SIZE];;
 	int				res, i = 0;
 	unsigned char 	cfg;
